@@ -16,7 +16,11 @@
 "Córdoba Lata 473ml": 1080.0,
 "Corona Botella 710ml": 3500.0,
 
+<<<<<<< HEAD
 -Vinos-
+=======
+-Vino-
+>>>>>>> fb4528d7624603558f104aa8da8d1a7c68e5c4ad
 "Zumuva tinto": 1500.0,
 "Zumuva blanco": 1250.0,
 "Nativo tinto": 1541.0,
