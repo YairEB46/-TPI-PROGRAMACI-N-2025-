@@ -3,7 +3,6 @@ import tkinter as tk
 import qrcode
 from tkinter import messagebox
 from pathlib import Path
-from productos_data import PRODUCTOS_DISPONIBLES
 from PIL import Image, ImageTk
 
 
@@ -21,7 +20,7 @@ def generar_contenido_boleta(cliente, productos_cliente, total, fecha):
     ]
 
     for cantidad, producto in productos_cliente:
-        precio = PRODUCTOS_DISPONIBLES[producto]
+        precio = open("lista_de_productos")
         subtotal = cantidad * precio
         lineas.append(f"{cantidad} x {producto} a ${precio:.2f} c/u => Total: ${subtotal:.2f}")
 
