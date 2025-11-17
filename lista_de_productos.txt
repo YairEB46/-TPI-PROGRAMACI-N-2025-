@@ -40,6 +40,6 @@
 
 "Rinde Dos Pack x10": 3600.0,
 "Juvin": 1360.0,
-"Baggio 200ml": 
+"Baggio 200ml": 394.44,
 "Baggio 1L": 1337.5,
 "Terma": 1030.0,
