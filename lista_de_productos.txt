@@ -17,19 +17,29 @@
 "Corona Botella 710ml": 3500.0,
 
 -Vino-
-"Zumuva / Nativo / Toro (vino en caja)": 1210.0,
-"Recero/Toro/Cavas 750ml": 1300.0,
-"Viñas de Balvo / Toro Viejo 1125ml": 2300.0,
+"Zumuva tinto": 1500.0,
+"Zumuva blanco": 1250.0,
+"Nativo tinto": 1541.0,
+"Nativo blanco": 1210.0,
+"Toro tinto": 1210.0,
+"Toro blanco": 1392.0,
+"Cavas 3/4": 1300.0,
+"Viñas de Balvo": 2200.0,
+"Toro Viejo 1125ml": 2300.0,
 
 "Fernet Miniatura": 2460.0,
 "Fernet 450ml": 8400.0,
 "Fernet 750ml": 12500.0,
 
-"Vodka (Sernova/Skyy/Absolut) 750ml": 7200.0,
+"Sernova": 7200.0,
+"Skyy": 8000.0,
+"Absolut": 20450.0,
 
-"Coca-Cola 2L (ret)": 2750.0,
+"Coca-Cola 2L": 2750.0,
 "Coca 1.25L": 2125.0,
 
-"Jugo Rinde Dos / Juvin / Granadina": 1360.0,
-"Baggio (varios)": 1337.5,
-"Amargos (Terma/Tres Torres)": 1030.0,
+"Rinde Dos Pack x10": 3600.0,
+"Juvin": 1360.0,
+"Baggio 200ml": 
+"Baggio 1L": 1337.5,
+"Terma": 1030.0,
