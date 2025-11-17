@@ -1,180 +1,245 @@
 import datetime
 import tkinter as tk
-from tkinter import messagebox, ttk
-from pathlib import Path
-from productos_data import PRODUCTOS_DISPONIBLES
+from tkinter import messagebox
+import qrcode
+from PIL import Image, ImageTk
+import os
 
-# Directorio para guardar boletas
-BOLETAS_DIR = Path("boletas")
-BOLETAS_DIR.mkdir(exist_ok=True)
+# ============================================
+#   ARCHIVO DE PRODUCTOS
+# ============================================
 
+ARCHIVO_PRODUCTOS = "C:\\Users\\FRVM\\Desktop\\TPI PROGRAMACION 2025\\-TPI-PROGRAMACI-N-2025-\\lista_de_productos.txt"
 
-def generar_contenido_boleta(cliente, productos_cliente, total, fecha):
-    """Genera el contenido de la boleta para reutilizar en archivo y GUI."""
+def leer_productos():
+    productos = {}
+    try:
+        with open(ARCHIVO_PRODUCTOS, "r", encoding="utf-8") as f:
+            for linea in f:
+                linea = linea.strip()
+                if not linea or linea.startswith("-"):
+                    continue
+                if ":" in linea:
+                    nombre, precio = linea.split(":", 1)
+                    nombre = nombre.strip().strip('"')
+                    precio = precio.strip().strip(",")
+                    try:
+                        productos[nombre] = float(precio)
+                    except:
+                        continue
+    except FileNotFoundError:
+        messagebox.showerror("Error", f"No se encontró el archivo '{ARCHIVO_PRODUCTOS}'")
+    return productos
+
+def listar_productos_con_codigo():
+    """
+    Devuelve una lista de strings tipo '1: Producto - $precio'
+    """
+    productos_dict = leer_productos()
+    lista = []
+    for i, (nombre, precio) in enumerate(productos_dict.items(), start=1):
+        lista.append(f"{i}: {nombre} - ${precio}")
+    return lista
+
+def producto_por_codigo(codigo):
+    productos_dict = leer_productos()
+    productos_lista = list(productos_dict.keys())
+    if 1 <= codigo <= len(productos_lista):
+        return productos_lista[codigo-1]
+    return None
+
+# ============================================
+#   GENERAR BOLETA Y QR
+# ============================================
+
+BOLETAS_DIR = "boletas"
+os.makedirs(BOLETAS_DIR, exist_ok=True)
+
+def generar_contenido_boleta(cliente, productos, productos_dict, total, fecha):
     lineas = [
-        f"Boleta para {cliente}",
-        f"Fecha y Hora: {fecha}",
-        "\nDetalles de la Venta:\n"
+        f"Boleta para: {cliente}",
+        f"Fecha: {fecha}",
+        "\nProductos comprados:\n"
     ]
-
-    for cantidad, producto in productos_cliente:
-        precio = PRODUCTOS_DISPONIBLES[producto]
+    for cantidad, producto in productos:
+        precio = productos_dict.get(producto, 0)
         subtotal = cantidad * precio
-        lineas.append(f"{cantidad} x {producto} a ${precio:.2f} c/u => Total: ${subtotal:.2f}")
-
+        lineas.append(f"{cantidad} x {producto} = ${subtotal:.2f}")
     lineas.append(f"\nTOTAL: ${total:.2f}")
     return "\n".join(lineas)
 
-
 def obtener_nombre_boleta(cliente, fecha):
-    """Genera el nombre del archivo de boleta."""
     fecha_formateada = fecha.replace(":", ";").replace("/", "-").replace(" ", "_")
     return f"{cliente}_{fecha_formateada}.txt"
 
+def registrar_boleta(cliente, productos_agregados):
+    productos_dict = leer_productos()
+    fecha = datetime.datetime.now().strftime("%d-%m-%y %H-%M-%S")
+    total = sum(cantidad * productos_dict.get(prod, 0) for cantidad, prod in productos_agregados)
+    contenido = generar_contenido_boleta(cliente, productos_agregados, productos_dict, total, fecha)
 
-def registrar_boleta(cliente, productos_cliente, total):
-    """Guarda la boleta en disco y devuelve el nombre y contenido."""
-    fecha = datetime.datetime.now().strftime("%d/%m/%y %H:%M:%S")
-    boleta_nombre = obtener_nombre_boleta(cliente, fecha)
-    contenido = generar_contenido_boleta(cliente, productos_cliente, total, fecha)
+    archivo = obtener_nombre_boleta(cliente, fecha)
+    ruta_txt = os.path.join(BOLETAS_DIR, archivo)
+    with open(ruta_txt, "w", encoding="utf-8") as f:
+        f.write(contenido)
 
-    ruta_boleta = BOLETAS_DIR / boleta_nombre
-    try:
-        with open(ruta_boleta, "w", encoding="utf-8") as boleta:
-            boleta.write(contenido)
-    except IOError as e:
-        raise
+    # Generar QR
+    qr = qrcode.make(contenido)
+    qr_path = os.path.join(BOLETAS_DIR, f"QR_{archivo.replace('.txt','')}.png")
+    qr.save(qr_path)
 
-    return boleta_nombre, contenido
+    mostrar_ticket(contenido, ruta_txt, qr_path)
 
+# ============================================
+#   MOSTRAR TICKET Y QR
+# ============================================
 
-class VentaApp:
-    def __init__(self, root):
-        self.root = root
-        root.title("Sistema de Boletas - Ventana Única")
-        root.geometry("700x500")
+def mostrar_ticket(contenido, archivo, ruta_qr):
+    v = tk.Toplevel()
+    v.title("Ticket generado")
+    v.geometry("550x600")
 
-        self.cart = []  # lista de (cantidad, producto)
+    tk.Label(v, text=f"Archivo generado: {archivo.split('/')[-1]}", font=("Arial", 12, "bold")).pack(pady=5)
 
-        # --- Cliente ---
-        frame_cliente = tk.Frame(root)
-        frame_cliente.pack(fill=tk.X, padx=10, pady=6)
+    caja = tk.Text(v, width=60, height=20, font=("Arial", 10))
+    caja.pack(pady=10)
+    caja.insert(tk.END, contenido)
+    caja.config(state=tk.DISABLED)
 
-        tk.Label(frame_cliente, text="Nombre del cliente:").pack(side=tk.LEFT)
-        self.cliente_entry = tk.Entry(frame_cliente)
-        self.cliente_entry.pack(side=tk.LEFT, padx=6, fill=tk.X, expand=True)
+    img = Image.open(ruta_qr).resize((220, 220))
+    qr_img = ImageTk.PhotoImage(img)
 
-        # --- Selección de producto ---
-        frame_producto = tk.Frame(root)
-        frame_producto.pack(fill=tk.X, padx=10, pady=6)
+    etiqueta_qr = tk.Label(v, image=qr_img)
+    etiqueta_qr.image = qr_img
+    etiqueta_qr.pack(pady=10)
 
-        tk.Label(frame_producto, text="Producto:").pack(side=tk.LEFT)
-        productos = list(PRODUCTOS_DISPONIBLES.keys())
-        self.producto_cb = ttk.Combobox(frame_producto, values=productos, state="readonly")
-        if productos:
-            self.producto_cb.set(productos[0])
-        self.producto_cb.pack(side=tk.LEFT, padx=6)
+    tk.Button(v, text="Cerrar", command=v.destroy, bg="#4CAF50", fg="white").pack(pady=10)
 
-        tk.Label(frame_producto, text="Cantidad:").pack(side=tk.LEFT, padx=(10, 0))
-        self.cantidad_entry = tk.Entry(frame_producto, width=6)
-        self.cantidad_entry.insert(0, "1")
-        self.cantidad_entry.pack(side=tk.LEFT, padx=6)
+# ============================================
+#   INTERFAZ PRINCIPAL
+# ============================================
 
-        self.btn_agregar = tk.Button(frame_producto, text="Agregar", command=self.agregar_producto)
-        self.btn_agregar.pack(side=tk.LEFT, padx=6)
+productos_agregados = []
 
-        # --- Area de carrito / boleta ---
-        frame_principal = tk.Frame(root)
-        frame_principal.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+def agregar_producto():
+    cantidad = entry_cantidad.get().strip()
+    codigo = entry_producto.get().strip()
 
-        self.text_boleta = tk.Text(frame_principal, bg="lightyellow", font=("Arial", 11))
-        self.text_boleta.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.text_boleta.config(state=tk.DISABLED)
+    if not cantidad.isdigit() or int(cantidad) <= 0:
+        messagebox.showerror("Error", "Cantidad inválida")
+        return
 
-        # Panel derecho con total y acciones
-        frame_derecha = tk.Frame(frame_principal)
-        frame_derecha.pack(side=tk.LEFT, fill=tk.Y, padx=8)
+    if not codigo.isdigit() or int(codigo) <= 0:
+        messagebox.showerror("Error", "Código inválido")
+        return
 
-        tk.Label(frame_derecha, text="Resumen").pack(pady=(0, 8))
-        self.label_total = tk.Label(frame_derecha, text="TOTAL: $0.00", font=("Arial", 12, "bold"))
-        self.label_total.pack(pady=4)
+    codigo = int(codigo)
+    producto = producto_por_codigo(codigo)
+    if not producto:
+        messagebox.showerror("Error", f"No existe un producto con el código {codigo}")
+        return
 
-        self.btn_guardar = tk.Button(frame_derecha, text="Guardar boleta", bg="#4CAF50", fg="white", command=self.guardar_boleta)
-        self.btn_guardar.pack(pady=8, fill=tk.X)
+    productos_agregados.append((int(cantidad), producto))
+    log.insert(tk.END, f"{cantidad} x {producto}\n")
 
-        self.btn_limpiar = tk.Button(frame_derecha, text="Limpiar carrito", command=self.limpiar_carrito)
-        self.btn_limpiar.pack(pady=4, fill=tk.X)
+    entry_cantidad.delete(0, tk.END)
+    entry_producto.delete(0, tk.END)
 
-        # Inicializar visual
-        self.actualizar_vista()
+def eliminar_producto():
+    """
+    Permite eliminar un producto agregado por índice de la lista de agregados
+    """
+    indice = entry_eliminar.get().strip()
+    if not indice.isdigit() or int(indice) <= 0:
+        messagebox.showerror("Error", "Índice inválido")
+        return
+    indice = int(indice)
+    if 1 <= indice <= len(productos_agregados):
+        eliminado = productos_agregados.pop(indice-1)
+        messagebox.showinfo("Eliminado", f"Se eliminó {eliminado[1]}")
+        actualizar_log()
+        entry_eliminar.delete(0, tk.END)
+    else:
+        messagebox.showerror("Error", "Índice fuera de rango")
 
-    def agregar_producto(self):
-        producto = self.producto_cb.get()
-        try:
-            cantidad = int(self.cantidad_entry.get())
-        except ValueError:
-            messagebox.showerror("Error", "La cantidad debe ser un número entero.")
-            return
+def actualizar_log():
+    log.delete(1.0, tk.END)
+    log.insert(tk.END, "Productos agregados:\n")
+    for i, (cant, prod) in enumerate(productos_agregados, start=1):
+        log.insert(tk.END, f"{i}: {cant} x {prod}\n")
 
-        if cantidad <= 0:
-            messagebox.showerror("Error", "La cantidad debe ser mayor que 0.")
-            return
+def finalizar_venta():
+    cliente = entry_cliente.get().strip()
 
-        if producto not in PRODUCTOS_DISPONIBLES:
-            messagebox.showerror("Error", f"Producto '{producto}' no está disponible.")
-            return
+    if not cliente:
+        messagebox.showerror("Error", "Debe ingresar el nombre del cliente.")
+        return
 
-        self.cart.append((cantidad, producto))
-        self.cantidad_entry.delete(0, tk.END)
-        self.cantidad_entry.insert(0, "1")
-        self.actualizar_vista()
+    if not productos_agregados:
+        messagebox.showerror("Error", "No se agregaron productos.")
+        return
 
-    def actualizar_vista(self):
-        total = 0
-        contenido = []
-        for cantidad, producto in self.cart:
-            precio = PRODUCTOS_DISPONIBLES[producto]
-            subtotal = cantidad * precio
-            contenido.append(f"{cantidad} x {producto} a ${precio:.2f} = ${subtotal:.2f}")
-            total += subtotal
+    registrar_boleta(cliente, productos_agregados)
 
-        self.text_boleta.config(state=tk.NORMAL)
-        self.text_boleta.delete("1.0", tk.END)
-        if contenido:
-            self.text_boleta.insert(tk.END, "\n".join(contenido) + "\n")
-        else:
-            self.text_boleta.insert(tk.END, "(Carrito vacío)\n")
-        self.text_boleta.config(state=tk.DISABLED)
+    productos_agregados.clear()
+    actualizar_log()
 
-        self.label_total.config(text=f"TOTAL: ${total:.2f}")
+def ver_lista_productos():
+    v = tk.Toplevel()
+    v.title("Lista de productos")
 
-    def guardar_boleta(self):
-        cliente = self.cliente_entry.get().strip()
-        if not cliente:
-            messagebox.showerror("Error", "Ingrese el nombre del cliente.")
-            return
+    tk.Label(v, text="Productos disponibles (ingrese el código):", font=("Arial", 12)).pack()
 
-        if not self.cart:
-            messagebox.showerror("Error", "No hay productos en el carrito.")
-            return
+    caja = tk.Text(v, width=50, height=20, font=("Arial", 10))
+    caja.pack()
 
-        # calcular total
-        total = sum(cantidad * PRODUCTOS_DISPONIBLES[producto] for cantidad, producto in self.cart)
-        try:
-            boleta_nombre, contenido = registrar_boleta(cliente, self.cart, total)
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo guardar la boleta: {e}")
-            return
+    lista = listar_productos_con_codigo()
+    if lista:
+        for prod in lista:
+            caja.insert(tk.END, prod + "\n")
+    else:
+        caja.insert(tk.END, "El archivo está vacío o no se encontró.")
 
-        messagebox.showinfo("Boleta guardada", f"Boleta guardada como: {boleta_nombre}")
-        self.limpiar_carrito()
+leer_productos()
 
-    def limpiar_carrito(self):
-        self.cart = []
-        self.actualizar_vista()
+# ============================================
+#   CREACIÓN DE VENTANA PRINCIPAL
+# ============================================
 
+root = tk.Tk()
+root.title("Sistema de Ventas")
+root.geometry("500x600")
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = VentaApp(root)
-    root.mainloop()
+tk.Label(root, text="Nombre del Cliente:", font=("Arial", 12)).pack(pady=5)
+entry_cliente = tk.Entry(root, font=("Arial", 12))
+entry_cliente.pack(pady=5)
+
+tk.Label(root, text="Cantidad:", font=("Arial", 12)).pack(pady=5)
+entry_cantidad = tk.Entry(root, font=("Arial", 12))
+entry_cantidad.pack(pady=5)
+
+tk.Label(root, text="Código del Producto:", font=("Arial", 12)).pack(pady=5)
+entry_producto = tk.Entry(root, font=("Arial", 12))
+entry_producto.pack(pady=5)
+
+tk.Button(root, text="Agregar Producto", command=agregar_producto,
+          bg="#0A84FF", fg="white", font=("Arial", 12)).pack(pady=10)
+
+# Eliminar productos
+tk.Label(root, text="Índice para eliminar producto:", font=("Arial", 12)).pack(pady=5)
+entry_eliminar = tk.Entry(root, font=("Arial", 12))
+entry_eliminar.pack(pady=5)
+tk.Button(root, text="Eliminar Producto", command=eliminar_producto,
+          bg="#FF3B30", fg="white", font=("Arial", 12)).pack(pady=10)
+
+tk.Button(root, text="Finalizar Venta", command=finalizar_venta,
+          bg="#4CAF50", fg="white", font=("Arial", 12)).pack(pady=10)
+
+tk.Button(root, text="Ver Lista de Productos", command=ver_lista_productos,
+          bg="#6C6C6C", fg="white", font=("Arial", 12)).pack(pady=10)
+
+log = tk.Text(root, width=60, height=10, font=("Arial", 10))
+log.pack(pady=10)
+log.insert(tk.END, "Productos agregados:\n")
+
+root.mainloop()

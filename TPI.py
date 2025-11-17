@@ -1,195 +1,188 @@
 import datetime
 import tkinter as tk
-import qrcode
 from tkinter import messagebox
-from pathlib import Path
+import qrcode
 from PIL import Image, ImageTk
+import os
 
+# ============================================
+#   CARGAR PRODUCTOS DESDE EL TXT
+# ============================================
 
-# Directorio para guardar boletas
-BOLETAS_DIR = Path("boletas")
-BOLETAS_DIR.mkdir(exist_ok=True)
+def cargar_productos():
+    """Lee los productos desde lista_de_productos.txt y devuelve un diccionario {nombre: precio}"""
+    productos = {}
+    try:
+        with open("lista_de_productos.txt", "r", encoding="utf-8") as f:
+            for linea in f:
+                linea = linea.strip()
+                if not linea or linea.startswith("-"):  # Ignora categorías y líneas vacías
+                    continue
+                if ":" in linea:
+                    try:
+                        nombre, precio = linea.split(":", 1)
+                        nombre = nombre.strip().strip('"')
+                        precio = float(precio.strip().rstrip(","))
+                        productos[nombre] = precio
+                    except:
+                        continue
+    except FileNotFoundError:
+        print("❌ El archivo lista_de_productos.txt no existe.")
+    return productos
 
+PRODUCTOS = cargar_productos()
 
-def generar_contenido_boleta(cliente, productos_cliente, total, fecha):
-    """Genera el contenido de la boleta para reutilizar en archivo y GUI."""
+# ============================================
+#   FUNCIONES DE BOLETA Y QR
+# ============================================
+
+BOLETAS_DIR = "boletas"
+if not os.path.exists(BOLETAS_DIR):
+    os.makedirs(BOLETAS_DIR)
+
+def generar_contenido_boleta(cliente, productos, total, fecha):
     lineas = [
-        f"Boleta para {cliente}",
-        f"Fecha y Hora: {fecha}",
-        "\nDetalles de la Venta:\n"
+        f"Boleta para: {cliente}",
+        f"Fecha: {fecha}",
+        "\nProductos comprados:\n"
     ]
-
-    for cantidad, producto in productos_cliente:
-        precio = open("lista_de_productos")
+    for cantidad, producto in productos:
+        precio = PRODUCTOS.get(producto, 0)
         subtotal = cantidad * precio
-        lineas.append(f"{cantidad} x {producto} a ${precio:.2f} c/u => Total: ${subtotal:.2f}")
-
+        lineas.append(f"{cantidad} x {producto} = ${subtotal:.2f}")
     lineas.append(f"\nTOTAL: ${total:.2f}")
     return "\n".join(lineas)
 
-
 def obtener_nombre_boleta(cliente, fecha):
-    """Genera el nombre del archivo de boleta."""
     fecha_formateada = fecha.replace(":", ";").replace("/", "-").replace(" ", "_")
     return f"{cliente}_{fecha_formateada}.txt"
 
-
-def registrar_boleta(cliente, productos_cliente, total):
-    """Registra y muestra la boleta."""
+def registrar_boleta(cliente, productos):
     fecha = datetime.datetime.now().strftime("%d/%m/%y %H:%M:%S")
-    boleta_nombre = obtener_nombre_boleta(cliente, fecha)
-    contenido = generar_contenido_boleta(cliente, productos_cliente, total, fecha)
+    total = sum(cantidad * PRODUCTOS[prod] for cantidad, prod in productos)
+    contenido = generar_contenido_boleta(cliente, productos, total, fecha)
 
-    # Guardar boleta en archivo
-    ruta_boleta = BOLETAS_DIR / boleta_nombre
-    try:
-        with open(ruta_boleta, "w", encoding="utf-8") as boleta:
-            boleta.write(contenido)
-    except IOError as e:
-        messagebox.showerror("Error", f"No se pudo guardar la boleta: {e}")
+    archivo = obtener_nombre_boleta(cliente, fecha)
+    ruta_txt = os.path.join(BOLETAS_DIR, archivo)
+    with open(ruta_txt, "w", encoding="utf-8") as f:
+        f.write(contenido)
+
+    # Generar QR
+    qr = qrcode.make(contenido)
+    qr_path = os.path.join(BOLETAS_DIR, f"QR_{archivo.replace('.txt', '')}.png")
+    qr.save(qr_path)
+
+    mostrar_ticket(contenido, ruta_txt, qr_path)
+
+# ============================================
+#   MOSTRAR TICKET Y QR
+# ============================================
+
+def mostrar_ticket(contenido, archivo, ruta_qr):
+    v = tk.Toplevel()
+    v.title("Ticket generado")
+    v.geometry("550x600")
+
+    tk.Label(v, text=f"Archivo generado: {os.path.basename(archivo)}", font=("Arial", 12, "bold")).pack(pady=5)
+
+    caja = tk.Text(v, width=60, height=20, font=("Arial", 10))
+    caja.pack(pady=10)
+    caja.insert(tk.END, contenido)
+    caja.config(state=tk.DISABLED)
+
+    img = Image.open(ruta_qr).resize((220, 220))
+    qr_img = ImageTk.PhotoImage(img)
+
+    etiqueta_qr = tk.Label(v, image=qr_img)
+    etiqueta_qr.image = qr_img
+    etiqueta_qr.pack(pady=10)
+
+    tk.Button(v, text="Cerrar", command=v.destroy, bg="#4CAF50", fg="white").pack(pady=10)
+
+# ============================================
+#   INTERFAZ PRINCIPAL
+# ============================================
+
+productos_agregados = []
+
+def agregar_producto():
+    cantidad = entry_cantidad.get().strip()
+    producto = entry_producto.get().strip()
+
+    if not cantidad.isdigit() or int(cantidad) <= 0:
+        messagebox.showerror("Error", "Cantidad inválida")
         return
 
-    # === Generar código QR único por boleta ===
-    qr_img = qrcode.make(contenido)
-    qr_path = BOLETAS_DIR / f"QR_{boleta_nombre.replace('.txt', '')}.png"
-    qr_img.save(qr_path)
+    if producto not in PRODUCTOS:
+        messagebox.showerror("Error", f"El producto '{producto}' no existe en la lista.")
+        return
 
-    # Mostrar boleta y QR en ventana
-    mostrar_boleta_ventana(cliente, contenido, boleta_nombre, qr_path)
+    productos_agregados.append((int(cantidad), producto))
+    log.insert(tk.END, f"{cantidad} x {producto}\n")
 
+    entry_cantidad.delete(0, tk.END)
+    entry_producto.delete(0, tk.END)
 
-def mostrar_boleta_ventana(cliente, contenido, boleta_nombre, qr_path):
-    """Muestra la boleta en una ventana Tkinter."""
-    ventana_boleta = tk.Tk()
-    ventana_boleta.title(f"Boleta de Venta - {cliente}")
-    ventana_boleta.geometry("520x560")
-    ventana_boleta.config(bg="#858585")
+def finalizar_venta():
+    cliente = entry_cliente.get().strip()
 
-    # Texto de la boleta
-    texto_boleta = tk.Text(
-        ventana_boleta,
-        width=50,
-        height=20,
-        bg="lightyellow",
-        fg="black",
-        font=("Arial", 10)
-    )
-    texto_boleta.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
-    texto_boleta.insert(tk.END, contenido)
-    texto_boleta.config(state=tk.DISABLED)
+    if not cliente:
+        messagebox.showerror("Error", "Debe ingresar el nombre del cliente.")
+        return
 
-    # Información del archivo
-    frame_info = tk.Frame(ventana_boleta, bg="#858585")
-    frame_info.pack(pady=5)
+    if not productos_agregados:
+        messagebox.showerror("Error", "No se agregaron productos.")
+        return
 
-    label = tk.Label(
-        frame_info,
-        text=f"Archivo: {boleta_nombre}",
-        bg="#858585",
-        fg="white",
-        font=("Arial", 9)
-    )
-    label.pack()
+    registrar_boleta(cliente, productos_agregados)
 
-    # === Mostrar QR ===
-    qr_img = Image.open(qr_path)
-    qr_img = qr_img.resize((180, 180))
-    qr_tk = ImageTk.PhotoImage(qr_img)
+    productos_agregados.clear()
+    log.delete(1.0, tk.END)
+    log.insert(tk.END, "Productos agregados:\n")
 
-    label_qr = tk.Label(ventana_boleta, image=qr_tk, bg="#858585")
-    label_qr.image = qr_tk  # evitar que Python lo limpie
-    label_qr.pack(pady=10)
+def ver_lista_productos():
+    v = tk.Toplevel()
+    v.title("Lista de productos")
+    tk.Label(v, text="Productos disponibles:", font=("Arial", 12)).pack()
+    caja = tk.Text(v, width=50, height=20, font=("Arial", 10))
+    caja.pack()
+    if PRODUCTOS:
+        for nombre, precio in PRODUCTOS.items():
+            caja.insert(tk.END, f"{nombre}: ${precio}\n")
+    else:
+        caja.insert(tk.END, "El archivo está vacío o no se pudo leer.")
 
-    # Botón cerrar
-    btn_cerrar = tk.Button(
-        ventana_boleta,
-        text="Cerrar",
-        command=ventana_boleta.quit,
-        bg="#4CAF50",
-        fg="white",
-        font=("Arial", 10)
-    )
-    btn_cerrar.pack(pady=10)
+# ============================================
+#   VENTANA PRINCIPAL
+# ============================================
 
-    ventana_boleta.mainloop()
+root = tk.Tk()
+root.title("Sistema de Ventas")
+root.geometry("450x550")
 
+tk.Label(root, text="Nombre del Cliente:", font=("Arial", 12)).pack(pady=5)
+entry_cliente = tk.Entry(root, font=("Arial", 12))
+entry_cliente.pack(pady=5)
 
-def validar_entrada_producto(entrada):
-    """Valida y procesa la entrada del producto."""
-    try:
-        partes = entrada.split(":")
-        if len(partes) != 2:
-            raise ValueError("Formato incorrecto")
+tk.Label(root, text="Cantidad:", font=("Arial", 12)).pack(pady=5)
+entry_cantidad = tk.Entry(root, font=("Arial", 12))
+entry_cantidad.pack(pady=5)
 
-        cantidad_str, producto = partes
-        cantidad = int(cantidad_str.strip())
-        producto = producto.strip()
+tk.Label(root, text="Producto:", font=("Arial", 12)).pack(pady=5)
+entry_producto = tk.Entry(root, font=("Arial", 12))
+entry_producto.pack(pady=5)
 
-        if cantidad <= 0:
-            raise ValueError("La cantidad debe ser mayor a 0")
+tk.Button(root, text="Agregar Producto", command=agregar_producto,
+          bg="#0A84FF", fg="white", font=("Arial", 12)).pack(pady=10)
 
-        if producto not in PRODUCTOS_DISPONIBLES:
-            raise ValueError(f"Producto '{producto}' no encontrado")
+tk.Button(root, text="Finalizar Venta", command=finalizar_venta,
+          bg="#4CAF50", fg="white", font=("Arial", 12)).pack(pady=10)
 
-        return cantidad, producto
+tk.Button(root, text="Ver Lista de Productos", command=ver_lista_productos,
+          bg="#6C6C6C", fg="white", font=("Arial", 12)).pack(pady=10)
 
-    except ValueError as e:
-        return None, str(e)
+log = tk.Text(root, width=50, height=10, font=("Arial", 10))
+log.pack(pady=10)
+log.insert(tk.END, "Productos agregados:\n")
 
-
-def realizar_venta():
-    """Gestiona el flujo de ventas."""
-    while True:
-        cliente = input("\nIngrese el nombre del cliente (o 'salir' para terminar): ").strip()
-
-        if cliente.lower() == "salir":
-            print("¡Hasta luego!")
-            break
-
-        if not cliente:
-            print("❌ El nombre del cliente no puede estar vacío.")
-            continue
-
-        productos_cliente = []
-        total = 0
-
-        print("\nIngrese productos (formato: 'cantidad:producto' o 'fin' para terminar)")
-        print("Productos disponibles:")
-        for producto in PRODUCTOS_DISPONIBLES.keys():
-            print(f"  - {producto}")
-
-        while True:
-            entrada = input("\nCantidad:Producto (o 'fin'): ").strip()
-
-            if entrada.lower() == "fin":
-                break
-
-            if not entrada:
-                print("❌ Entrada vacía. Intente de nuevo.")
-                continue
-
-            cantidad, producto = validar_entrada_producto(entrada)
-
-            if cantidad is None:
-                print(f"❌ Error: {producto}")
-                continue
-
-            productos_cliente.append((cantidad, producto))
-            subtotal = cantidad * PRODUCTOS_DISPONIBLES[producto]
-            total += subtotal
-            print(f"✓ Agregado: {cantidad}x {producto} = ${subtotal:.2f}")
-
-        if not productos_cliente:
-            print("❌ No se agregaron productos. Intente nuevamente.")
-            continue
-
-        print(f"\n💰 Total de la venta: ${total:.2f}")
-        registrar_boleta(cliente, productos_cliente, total)
-
-        otra_boleta = input("\n¿Desea hacer otra boleta? (si/no): ").strip().lower()
-        if otra_boleta not in ["si", "s"]:
-            break
-
-
-if __name__ == "__main__":
-    realizar_venta()
+root.mainloop()
