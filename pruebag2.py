@@ -16,16 +16,27 @@ def cargar_productos():
         with open("lista_de_productos.txt", "r", encoding="utf-8") as f:
             for linea in f:
                 linea = linea.strip()
-                if linea and ":" in linea:
-                    # Parsear línea formato: "Producto": precio
-                    partes = linea.split(": ")
-                    if len(partes) == 2:
-                        producto = partes[0].strip().strip('"')
-                        try:
-                            precio = float(partes[1].strip())
-                            productos[producto] = precio
-                        except ValueError:
-                            pass
+                # Saltar líneas vacías y categorías (que comienzan y terminan con -)
+                if not linea or (linea.startswith("-") and linea.endswith("-")):
+                    continue
+                
+                # Parsear línea formato: "Producto": precio,
+                if "\"" in linea and ": " in linea:
+                    try:
+                        # Extraer el nombre del producto entre comillas
+                        inicio = linea.index("\"")
+                        fin = linea.index("\"", inicio + 1)
+                        producto = linea[inicio + 1:fin]
+                        
+                        # Extraer el precio (después de ": " y antes de la coma)
+                        precio_str = linea[fin + 2:].strip()
+                        if precio_str.endswith(","):
+                            precio_str = precio_str[:-1]
+                        precio = float(precio_str.strip())
+                        
+                        productos[producto] = precio
+                    except (ValueError, IndexError):
+                        pass
     except FileNotFoundError:
         print("Error: No se encontró lista_de_productos.txt")
     return productos
