@@ -6,6 +6,11 @@ try:
     import qrcode
 except Exception:
     qrcode = None
+try:
+    from PIL import Image, ImageTk
+except Exception:
+    Image = None
+    ImageTk = None
 import os
 import sys
 import subprocess
@@ -122,12 +127,8 @@ def registrar_boleta(cliente, productos_cliente, total):
     boleta_nombre = obtener_nombre_boleta(cliente, fecha)
     contenido = generar_contenido_boleta(cliente, productos_cliente, total, fecha)
 
-    # Crear estructura de carpetas: boletas/YYYY/MM/DD/
-    ahora = datetime.datetime.now()
-    subcarpeta = BOLETAS_DIR / str(ahora.year) / f"{ahora.month:02d}" / f"{ahora.day:02d}"
-    subcarpeta.mkdir(parents=True, exist_ok=True)
-
-    ruta_boleta = subcarpeta / boleta_nombre
+    # Guardar directamente en la carpeta boletas/
+    ruta_boleta = BOLETAS_DIR / boleta_nombre
     try:
         with open(ruta_boleta, "w", encoding="utf-8") as boleta:
             boleta.write(contenido)
@@ -172,7 +173,7 @@ class VentaApp:
         # Ajustado a tamaño mayor para visibilidad: 18pt
         root.option_add("*Font", "Arial 18")
         root.title("Sistema de Boletas - Ventana Única")
-        root.geometry("700x500")
+        root.geometry("1000x600")
 
         # Estilos para Treeview (encabezados y celdas)
         style = ttk.Style(root)
@@ -207,12 +208,11 @@ class VentaApp:
         self.cliente_entry = ttk.Entry(frame_cliente)
         self.cliente_entry.pack(side=tk.LEFT, padx=6, fill=tk.X, expand=True)
         
+        # Evento para actualizar QR cuando cambie el cliente
+        self.cliente_entry.bind('<KeyRelease>', lambda e: self.actualizar_vista_qr())
+        
         # Cargar historial de clientes para autocomplete
         self.historial_clientes = cargar_historial_clientes()
-        
-        # Si hay clientes en el historial, mostrar en tooltip o sugerencia
-        if self.historial_clientes:
-            self.cliente_entry.insert(0, self.historial_clientes[0])
 
         # --- Selección de producto ---
         frame_producto = tk.Frame(root)
@@ -266,7 +266,7 @@ class VentaApp:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.pack(side=tk.LEFT, fill=tk.Y)
 
-        # Panel derecho con total y acciones
+        # Panel derecho con total, QR y acciones
         frame_derecha = tk.Frame(frame_principal)
         frame_derecha.pack(side=tk.LEFT, fill=tk.Y, padx=8)
 
@@ -274,6 +274,20 @@ class VentaApp:
         # Total con fuente aún más visible
         self.label_total = tk.Label(frame_derecha, text="TOTAL: $0.00", font=("Arial", 24, "bold"))
         self.label_total.pack(pady=4)
+
+        # Panel para mostrar código QR
+        tk.Label(frame_derecha, text="Vista previa QR", font=("Arial", 9, "bold")).pack(pady=(10, 5))
+        
+        self.frame_qr = tk.Frame(frame_derecha, bg="white", width=200, height=200, relief=tk.SUNKEN, bd=2)
+        self.frame_qr.pack(pady=5, fill=tk.BOTH, expand=False)
+        self.frame_qr.pack_propagate(False)
+        
+        self.label_qr = tk.Label(self.frame_qr, bg="white", text="El QR aparecerá\naquí cuando\nguardes", 
+                                 font=("Arial", 9), fg="#999")
+        self.label_qr.pack(expand=True)
+        
+        # Referencia para mantener imagen en memoria
+        self.qr_photo = None
 
         # Botones con estilos ttk
         self.btn_guardar = ttk.Button(frame_derecha, text="Guardar boleta", style='Primary.TButton', command=self.guardar_boleta)
@@ -326,11 +340,29 @@ class VentaApp:
             return
 
         precio = PRODUCTOS_DISPONIBLES[producto]
-        subtotal = cantidad * precio
 
-        # insertar en treeview y en carrito (almacenar item id)
-        item_id = self.tree.insert("", "end", values=(producto, cantidad, f"${precio:.2f}", f"${subtotal:.2f}"))
-        self.cart.append((item_id, cantidad, producto))
+        # Buscar si el producto ya existe en el carrito
+        producto_encontrado = False
+        for i, (item_id, cant, prod) in enumerate(self.cart):
+            if prod == producto:
+                # Sumar la cantidad al producto existente
+                nueva_cantidad = cant + cantidad
+                subtotal = nueva_cantidad * precio
+                
+                # Actualizar el treeview
+                self.tree.item(item_id, values=(producto, nueva_cantidad, f"${precio:.2f}", f"${subtotal:.2f}"))
+                
+                # Actualizar el carrito
+                self.cart[i] = (item_id, nueva_cantidad, prod)
+                producto_encontrado = True
+                break
+        
+        if not producto_encontrado:
+            # Si no existe, agregarlo como nuevo
+            subtotal = cantidad * precio
+            item_id = self.tree.insert("", "end", values=(producto, cantidad, f"${precio:.2f}", f"${subtotal:.2f}"))
+            self.cart.append((item_id, cantidad, producto))
+        
         self.cantidad_entry.delete(0, tk.END)
         self.cantidad_entry.insert(0, "1")
         self.actualizar_vista()
@@ -351,6 +383,41 @@ class VentaApp:
             total += cantidad * precio
 
         self.label_total.config(text=f"TOTAL: ${total:.2f}")
+        
+        # Actualizar vista previa del QR con el contenido actual
+        self.actualizar_vista_qr()
+
+    def actualizar_vista_qr(self):
+        """Actualiza la vista previa del QR en la interfaz principal."""
+        cliente = self.cliente_entry.get().strip()
+        
+        # Si no hay cliente o no hay productos, mostrar mensaje
+        if not cliente or not self.cart:
+            self.label_qr.config(image='', text="El QR aparecerá\naquí cuando\nguardes", fg="#999")
+            self.qr_photo = None
+            return
+        
+        # Generar contenido de boleta actual
+        try:
+            productos_para_qr = [(cantidad, producto) for _id, cantidad, prod in self.cart for producto in [prod]]
+            total = sum(cantidad * PRODUCTOS_DISPONIBLES[producto] for cantidad, producto in productos_para_qr)
+            fecha = datetime.datetime.now().strftime("%d/%m/%y %H:%M:%S")
+            contenido = generar_contenido_boleta(cliente, productos_para_qr, total, fecha)
+            
+            # Generar código QR
+            if qrcode is not None:
+                qr = qrcode.make(contenido)
+                # Redimensionar a 190x190 para que quepa en el frame
+                qr_img = qr.resize((190, 190))
+                
+                # Convertir a PhotoImage
+                if Image and ImageTk:
+                    qr_photo = ImageTk.PhotoImage(qr_img)
+                    self.label_qr.config(image=qr_photo, text="")
+                    self.qr_photo = qr_photo  # Mantener referencia
+        except Exception as e:
+            self.label_qr.config(image='', text="Error al\ngenerar QR", fg="#999")
+            self.qr_photo = None
 
     def on_header_click(self, col):
         """Ordena el carrito por la columna seleccionada usando ordenamiento por selección.
@@ -415,6 +482,11 @@ class VentaApp:
         if not cliente:
             messagebox.showerror("Error", "Ingrese el nombre del cliente.")
             return
+        
+        # Validar que el nombre contenga solo letras y espacios
+        if not all(c.isalpha() or c.isspace() for c in cliente):
+            messagebox.showerror("Error", "El nombre del cliente debe contener solo letras y espacios.")
+            return
 
         if not self.cart:
             messagebox.showerror("Error", "No hay productos en el carrito.")
@@ -442,9 +514,14 @@ class VentaApp:
         
         msg = f"Boleta guardada como:\n{boleta_nombre}\n\nRuta: {ruta_relativa}"
         messagebox.showinfo("Boleta guardada", msg)
+        
+        # Limpiar carrito
         self.limpiar_carrito()
 
     def limpiar_carrito(self):
+        # limpiar nombre del cliente
+        self.cliente_entry.delete(0, tk.END)
+        
         # limpiar treeview y carrito
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -501,34 +578,91 @@ class VentaApp:
         self.actualizar_vista()
 
     def mostrar_boleta(self):
-        # Mostrar la ruta de la última boleta guardada (sin abrirla automáticamente)
+        # Mostrar la boleta y el código QR en una ventana
         global ULTIMA_BOLETA
         if ULTIMA_BOLETA and ULTIMA_BOLETA.exists():
+            # Crear ventana emergente
+            ventana_boleta = tk.Toplevel(self.root)
+            ventana_boleta.title("Boleta y Código QR")
+            ventana_boleta.geometry("800x700")
+            
             try:
                 ruta_rel = str(ULTIMA_BOLETA.relative_to(Path.cwd()))
             except Exception:
                 ruta_rel = str(ULTIMA_BOLETA)
             
-            msg = f"Última boleta guardada en:\n{ruta_rel}\n\n" \
-                  f"Archivos:\n- {ULTIMA_BOLETA.name} (boleta)\n" \
-                  f"- {ULTIMA_BOLETA.with_suffix('.png').name} (código QR)"
-            messagebox.showinfo("Boleta guardada", msg)
+            # Título con la ruta de la boleta
+            tk.Label(ventana_boleta, text=f"Boleta: {ULTIMA_BOLETA.name}", 
+                    font=("Arial", 12, "bold")).pack(pady=5)
+            
+            # Frame principal para dividir en dos partes
+            frame_principal = tk.Frame(ventana_boleta)
+            frame_principal.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Frame izquierda: contenido de la boleta
+            frame_izq = tk.Frame(frame_principal)
+            frame_izq.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+            
+            tk.Label(frame_izq, text="Contenido de la Boleta", font=("Arial", 10, "bold")).pack()
+            
+            caja_boleta = tk.Text(frame_izq, width=40, height=30, font=("Courier", 9))
+            caja_boleta.pack(fill=tk.BOTH, expand=True, pady=5)
+            
+            # Cargar contenido de la boleta
+            try:
+                with open(ULTIMA_BOLETA, "r", encoding="utf-8") as f:
+                    contenido = f.read()
+                    caja_boleta.insert(tk.END, contenido)
+            except Exception as e:
+                caja_boleta.insert(tk.END, f"Error al leer boleta: {e}")
+            
+            caja_boleta.config(state=tk.DISABLED)
+            
+            # Frame derecha: código QR
+            frame_der = tk.Frame(frame_principal)
+            frame_der.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+            
+            tk.Label(frame_der, text="Código QR", font=("Arial", 10, "bold")).pack()
+            
+            # Intenta mostrar el código QR
+            ruta_qr = ULTIMA_BOLETA.with_suffix('.png')
+            if ruta_qr.exists() and Image and ImageTk:
+                try:
+                    img = Image.open(ruta_qr).resize((350, 350))
+                    qr_img = ImageTk.PhotoImage(img)
+                    
+                    etiqueta_qr = tk.Label(frame_der, image=qr_img)
+                    etiqueta_qr.image = qr_img  # Mantener referencia
+                    etiqueta_qr.pack(pady=10)
+                except Exception as e:
+                    tk.Label(frame_der, text=f"No se pudo cargar QR: {e}").pack(pady=10)
+            else:
+                tk.Label(frame_der, text="Código QR no disponible").pack(pady=10)
+            
+            # Botones
+            frame_botones = tk.Frame(ventana_boleta)
+            frame_botones.pack(fill=tk.X, padx=10, pady=5)
+            
+            tk.Button(frame_botones, text="Abrir archivo", 
+                     command=lambda: abrir_archivo(ULTIMA_BOLETA),
+                     bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
+            
+            tk.Button(frame_botones, text="Cerrar", 
+                     command=ventana_boleta.destroy,
+                     bg="#808080", fg="white").pack(side=tk.LEFT, padx=5)
         else:
             messagebox.showinfo("Mostrar boleta", "No hay boleta reciente para mostrar.")
 
     def abrir_carpeta_boletas(self):
-        """Abre la carpeta de boletas del día actual en el Explorador."""
-        ahora = datetime.datetime.now()
-        carpeta_hoy = BOLETAS_DIR / str(ahora.year) / f"{ahora.month:02d}" / f"{ahora.day:02d}"
-        
-        if carpeta_hoy.exists():
+        """Abre la carpeta de boletas en el Explorador."""
+        if BOLETAS_DIR.exists():
             try:
-                abrir_archivo(carpeta_hoy)
+                abrir_archivo(BOLETAS_DIR)
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo abrir la carpeta: {e}")
         else:
             messagebox.showinfo("Carpeta de boletas", 
-                              f"La carpeta no existe aún.\nSe creará cuando guardes la primera boleta hoy:\n{carpeta_hoy}")
+                              f"La carpeta no existe aún.\nSe creará cuando guardes la primera boleta en:\n{BOLETAS_DIR}")
 
 if __name__ == "__main__":
     root = tk.Tk()
