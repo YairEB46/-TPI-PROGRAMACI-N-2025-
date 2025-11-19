@@ -11,9 +11,10 @@ try:
 except Exception:
     Image = None
     ImageTk = None
-import os
-import sys
-import subprocess
+import os   #Trabajar con archivos y directorios
+import sys  #Rutas del intérprete
+import subprocess   # Ejecuta programas externos desde python
+
 def cargar_productos():
     """Carga los productos desde lista_de_productos.txt"""
     productos = {}
@@ -25,7 +26,7 @@ def cargar_productos():
                 if not linea or (linea.startswith("-") and linea.endswith("-")):
                     continue
                 
-                # Parsear línea formato: "Producto": precio,
+                # Pasar línea formato: "Producto": precio,
                 if "\"" in linea and ": " in linea:
                     try:
                         # Extraer el nombre del producto entre comillas
@@ -70,18 +71,18 @@ def abrir_archivo(ruta: Path):
 
 
 def cargar_historial_clientes():
-    """Carga la lista de clientes desde clientes.txt."""
+    #Carga la lista de clientes desde clientes.txt.
     clientes = []
     try:
-        with open("clientes.txt", "r", encoding="utf-8") as f:
-            clientes = [linea.strip() for linea in f if linea.strip()]
+        with open("clientes.txt", "r", encoding="utf-8") as f: # Se abre el archivo modo lectura y se leen bien los tildes y caracteres especiales.
+            clientes = [linea.strip() for linea in f if linea.strip()] #Crea una lista de clientes sin listas vacías, se eliminan los espacios en los extremos.
     except FileNotFoundError:
         pass
     return clientes
 
 
 def guardar_cliente(cliente: str):
-    """Guarda un cliente nuevo en el historial (sin duplicados)."""
+    #Guarda un cliente nuevo en el historial (sin duplicados).
     if not cliente or not cliente.strip():
         return
     cliente = cliente.strip()
@@ -166,9 +167,9 @@ def registrar_boleta(cliente, productos_cliente, total):
     return boleta_nombre, contenido
 
 
-class VentaApp:
-    def __init__(self, root):
-        self.root = root
+class VentaApp:     
+    def __init__(self, root):   
+        self.root = root    #Guarda la ventana principal
         # Fuente global más grande para mejor legibilidad
         # Ajustado a tamaño mayor para visibilidad: 18pt
         root.option_add("*Font", "Arial 18")
@@ -313,7 +314,7 @@ class VentaApp:
 
 
         # Estado para deshacer
-        self.last_deleted = []
+        self.ultimo_borrado = []
 
         # Atajos de teclado
         root.bind('<Control-s>', lambda e: self.guardar_boleta())
@@ -326,7 +327,7 @@ class VentaApp:
     def agregar_producto(self):
         producto = self.producto_cb.get()
         try:
-            cantidad = int(self.cantidad_entry.get())
+            cantidad = int(self.cantidad_entry.get())   #Convierte lo que el usuario ingresa a entero
         except ValueError:
             messagebox.showerror("Error", "La cantidad debe ser un número entero.")
             return
@@ -427,10 +428,10 @@ class VentaApp:
         asc = self.sort_directions.get(col, True)
 
         # construir lista de entradas (cantidad, producto)
-        entries = [(cantidad, producto) for _id, cantidad, product in self.cart for producto in [product]]
+        entradas = [(cantidad, product) for _id, cantidad, product in self.cart]
 
-        def key_func(entry):
-            cantidad, producto = entry
+        def key_func(entr):    #Se usa la función como clave de ordenamiento
+            cantidad, producto = entr
             if col == "producto":
                 return str(producto).lower()
             elif col == "cantidad":
@@ -447,13 +448,13 @@ class VentaApp:
                 return cantidad * PRODUCTOS_DISPONIBLES.get(producto, 0)
             return 0
 
-        # selection sort sobre la lista entries
-        n = len(entries)
+        # selection sort sobre la lista 
+        n = len(entradas)
         for i in range(n):
             sel = i
             for j in range(i + 1, n):
-                a = key_func(entries[j])
-                b = key_func(entries[sel])
+                a = key_func(entradas[j])
+                b = key_func(entradas[sel])
                 if asc:
                     if a < b:
                         sel = j
@@ -461,7 +462,7 @@ class VentaApp:
                     if a > b:
                         sel = j
             if sel != i:
-                entries[i], entries[sel] = entries[sel], entries[i]
+                entradas[i], entradas[sel] = entradas[sel], entradas[i]
 
         # alternar dirección para el próximo click
         self.sort_directions[col] = not asc
@@ -470,7 +471,7 @@ class VentaApp:
         for it in self.tree.get_children():
             self.tree.delete(it)
         self.cart = []
-        for cantidad, producto in entries:
+        for cantidad, producto in entradas:
             precio = PRODUCTOS_DISPONIBLES.get(producto, 0)
             subtotal = cantidad * precio
             item_id = self.tree.insert("", "end", values=(producto, cantidad, f"${precio:.2f}", f"${subtotal:.2f}"))
@@ -538,12 +539,12 @@ class VentaApp:
         if not messagebox.askyesno("Confirmar", "¿Eliminar los items seleccionados?"):
             return
 
-        deleted = []
+        borrado = []
         for item_id in sel:
             try:
                 vals = self.tree.item(item_id, 'values')
                 # guardar valores para deshacer: (values)
-                deleted.append((vals, item_id))
+                borrado.append((vals, item_id))
                 self.tree.delete(item_id)
             except Exception:
                 pass
@@ -551,20 +552,20 @@ class VentaApp:
             self.cart = [entry for entry in self.cart if entry[0] != item_id]
 
         # almacenar para posible deshacer (solo los valores)
-        if deleted:
+        if borrado:
             # almacenar solo la lista de valores
-            self.last_deleted.append([v for v, _id in deleted])
+            self.ultimo_borrado.append([v for v, _id in borrado])
 
         self.actualizar_vista()
 
     def deshacer_eliminacion(self):
-        if not self.last_deleted:
+        if not self.ultimo_borrado:
             messagebox.showinfo("Deshacer", "No hay acciones para deshacer.")
             return
-        items = self.last_deleted.pop()
-        # items es una lista de tuplas values
+        items = self.ultimo_borrado.pop()
+        # items es una lista de tuplas val
         for vals in items:
-            # vals: (producto, cantidad, precio_str, subtotal_str)
+            #  (producto, cantidad, precio_str, subtotal_str)
             producto, cantidad, precio_str, subtotal_str = vals
             try:
                 cantidad_int = int(cantidad)
